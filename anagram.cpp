@@ -1,5 +1,6 @@
 #include <asm-generic/ioctls.h>
 #include <cerrno>
+#include <climits>
 #include <cstddef>
 #include <cstdio>
 #include <sys/ioctl.h>
@@ -13,15 +14,22 @@
 
 
 #define CTRL_KEY(k) ((k)&0x1f)
+// #define ESC(k) ("\x1b["+std::to_string(k))
 struct editorConfig{
     int screenrows;
     int screencols;
+    int cx;
+    int cy;
     struct termios original_term;
 };
 
 struct editorConfig E;
 
-
+// struct screenbuffer{
+//     const char* start;
+//     int length;
+// };
+// screenbuffer abuf;
 
 void die(const char* s){
     write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -71,19 +79,7 @@ int getWindowSize(int* rows,int* cols){
     return 0;
 }
 
-void drawRows(){
-    for(int i = 0;i<E.screenrows-1;i++){
-        write(STDOUT_FILENO,"~\r\n",3);
-    }
-    write(STDOUT_FILENO,"~",1);
-}
-void refreshScreen(){
-    write(STDOUT_FILENO,"\x1b[2J", 4); // we use 4 here because \x1b[2J is 4 bytes in size
-    write(STDOUT_FILENO,"\x1b[H", 3); // using VT100 codes
 
-    drawRows();
-    write(STDOUT_FILENO,"\x1b[H", 3); // using VT100 codes
-}
 int getCursorPosition(int* rows,int* cols){
     char buf[32];
     unsigned int i = 0;
@@ -101,6 +97,26 @@ int getCursorPosition(int* rows,int* cols){
     if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
     return 0;
 }
+void appendRows(std::string* buf){
+
+    for(int i = 0;i<E.screenrows-1;i++){
+        *buf+="Hello World!\r\n";
+    }
+    *buf+='~';
+}
+
+void refreshScreen(){
+    std::string buf;
+    buf+="\x1b[2J"; //Clear Screen
+    buf+="\x1b[H";  //Move cursor to upper left
+    buf+="";
+    int rows;
+    int cols;
+    // getCursorPosition(&rows,&cols);
+    appendRows(&buf);
+    buf+="\x1b["+std::to_string(E.cx)+";"+std::to_string(E.cy)+"H";
+    write(STDOUT_FILENO,buf.data(),buf.length());
+}
 
 void editorProcessKeyboard(){
     char c = editorReadKey();
@@ -110,11 +126,24 @@ void editorProcessKeyboard(){
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
             break;
+        // case 'B':
+        //     printf("down");
+        //     write(STDOUT_FILENO,"\x1b[B",3);
+        //     break;
+        // case 'A':
+        //     printf("up");
+        //     write(STDOUT_FILENO,"\x1b[A",3);
+        //     break;
+
     }
 }
 
 void initEditor(){
     if(getWindowSize(&E.screenrows,&E.screencols)==-1) die("getWindowSize");
+    E.cx=0;
+    E.cy=0;
+    // const char* message = "Hello World!";
+    // abuf.start = message;
 }
 int main(){
     enableRawMode();
