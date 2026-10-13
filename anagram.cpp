@@ -3,6 +3,8 @@
 #include <climits>
 #include <cstddef>
 #include <cstdio>
+#include <fstream>
+#include <ios>
 #include <sys/ioctl.h>
 #include <stdio.h>
 #include <errno.h>
@@ -11,6 +13,7 @@
 #include<unistd.h>
 #include <termios.h>
 #include <string>
+#include <vector>
 
 
 #define CTRL_KEY(k) ((k)&0x1f)
@@ -18,8 +21,11 @@
 struct editorConfig{
     int screenrows;
     int screencols;
+    const char* filename;
     int cx;
     int cy;
+    std::string line;
+    std::vector<std::string> lines;
     struct termios original_term;
 };
 
@@ -30,6 +36,15 @@ struct editorConfig E;
 //     int length;
 // };
 // screenbuffer abuf;
+
+void debugLog(std::string message){
+    std::ofstream logfile("log.txt");
+    if(logfile.is_open()){
+        logfile<<message<<"\n";
+        logfile.close();
+    }
+}
+
 
 void die(const char* s){
     write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -97,10 +112,18 @@ int getCursorPosition(int* rows,int* cols){
     if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
     return 0;
 }
-void appendRows(std::string* buf){
+void readFile(){
+    debugLog(E.filename);
+    std::ifstream file(E.filename);
 
+    if(file.is_open()){
+        while(std::getline(file,E.line)) E.lines.push_back(E.line);
+    }
+}
+void appendRows(std::string* buf){
     for(int i = 0;i<E.screenrows-1;i++){
-        *buf+="Hello World!\r\n";
+        if(i<E.lines.size()) *buf+= E.lines[i].substr(0,E.screencols)+"\r\n";
+        else *buf+="~\r\n";
     }
     *buf+='~';
 }
@@ -114,7 +137,7 @@ void refreshScreen(){
     int cols;
     // getCursorPosition(&rows,&cols);
     appendRows(&buf);
-    buf+="\x1b["+std::to_string(E.cx)+";"+std::to_string(E.cy)+"H";
+    buf+="\x1b["+std::to_string(E.cy)+";"+std::to_string(E.cx)+"H";
     write(STDOUT_FILENO,buf.data(),buf.length());
 }
 
@@ -138,16 +161,16 @@ void editorProcessKeyboard(){
     }
 }
 
-void initEditor(){
+void initEditor(const char* filename){
     if(getWindowSize(&E.screenrows,&E.screencols)==-1) die("getWindowSize");
     E.cx=0;
     E.cy=0;
-    // const char* message = "Hello World!";
-    // abuf.start = message;
+    E.filename = filename;
+    readFile();
 }
-int main(){
+int main(int argc,char** argv){
     enableRawMode();
-    initEditor();
+    initEditor(argv[1]);
     while(1){
         refreshScreen();
         editorProcessKeyboard();
