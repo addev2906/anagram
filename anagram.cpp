@@ -17,7 +17,13 @@
 
 
 #define CTRL_KEY(k) ((k)&0x1f)
-// #define ESC(k) ("\x1b["+std::to_string(k))
+
+enum EditorKey {
+    ARROW_UP=1000,
+    ARROW_DOWN,
+    ARROW_RIGHT,
+    ARROW_LEFT
+};
 struct editorConfig{
     int screenrows;
     int screencols;
@@ -38,8 +44,9 @@ struct editorConfig E;
 // screenbuffer abuf;
 
 void debugLog(std::string message){
-    std::ofstream logfile("log.txt");
+    std::ofstream logfile("log.txt",std::ios::app);
     if(logfile.is_open()){
+        // logfile.seekp(0,std::ios::end);
         logfile<<message<<"\n";
         logfile.close();
     }
@@ -55,8 +62,14 @@ void die(const char* s){
 }
 
 void disableRawMode(){
+    std::ofstream file("log.txt");
+    if(file.is_open()){
+        file.clear();
+        file.close();
+    }
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.original_term) == -1) die("tcsetattr");
 }
+
 void enableRawMode(){
     if (tcgetattr(STDIN_FILENO, &E.original_term) == -1) die("tcgetattr");
     atexit(disableRawMode);
@@ -71,11 +84,18 @@ void enableRawMode(){
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
 }
 
-char editorReadKey(){
+int editorReadKey(){
     int nread;
     char c;
     if((nread = read(STDIN_FILENO,&c,1))!=1){
         if(nread==-1 && errno!=EAGAIN) die("read");
+    }
+    if(c=='\x1b'){
+        if(read(STDIN_FILENO,&c,1)==0) c='\x1b';
+        else{
+            read(STDIN_FILENO,&c,1);
+            return 1000+(c-'A');
+        }
     }
     return c;
 }
@@ -94,7 +114,6 @@ int getWindowSize(int* rows,int* cols){
     return 0;
 }
 
-
 int getCursorPosition(int* rows,int* cols){
     char buf[32];
     unsigned int i = 0;
@@ -112,6 +131,7 @@ int getCursorPosition(int* rows,int* cols){
     if (sscanf(&buf[2], "%d;%d", rows, cols) != 2) return -1;
     return 0;
 }
+
 void readFile(){
     debugLog(E.filename);
     std::ifstream file(E.filename);
@@ -120,6 +140,7 @@ void readFile(){
         while(std::getline(file,E.line)) E.lines.push_back(E.line);
     }
 }
+
 void appendRows(std::string* buf){
     for(int i = 0;i<E.screenrows-1;i++){
         if(i<E.lines.size()) *buf+= E.lines[i].substr(0,E.screencols)+"\r\n";
@@ -142,32 +163,40 @@ void refreshScreen(){
 }
 
 void editorProcessKeyboard(){
-    char c = editorReadKey();
+    int c = editorReadKey();
     switch(c){
         case CTRL_KEY('q'):
             write(STDOUT_FILENO, "\x1b[2J", 4);
             write(STDOUT_FILENO, "\x1b[H", 3);
             exit(0);
             break;
-        // case 'B':
-        //     printf("down");
-        //     write(STDOUT_FILENO,"\x1b[B",3);
-        //     break;
-        // case 'A':
-        //     printf("up");
-        //     write(STDOUT_FILENO,"\x1b[A",3);
-        //     break;
-
+        case ARROW_DOWN:
+            debugLog("down");
+            E.cy++;
+            break;
+        case ARROW_UP:
+            debugLog("up");
+            E.cy--;
+            break;
+        case ARROW_RIGHT:
+            debugLog("right");
+            E.cx++;
+            break;
+        case ARROW_LEFT:
+            debugLog("left");
+            E.cx--;
+            break;
     }
 }
 
 void initEditor(const char* filename){
     if(getWindowSize(&E.screenrows,&E.screencols)==-1) die("getWindowSize");
-    E.cx=0;
-    E.cy=0;
+    E.cx=1;
+    E.cy=1;
     E.filename = filename;
     readFile();
 }
+
 int main(int argc,char** argv){
     enableRawMode();
     initEditor(argv[1]);
