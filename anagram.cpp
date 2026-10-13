@@ -8,14 +8,14 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <cstdlib>
-#include<unistd.h>
+#include <unistd.h>
 #include <termios.h>
 #include <string>
 #include <vector>
 
 
 #define CTRL_KEY(k) ((k)&0x1f)
-constexpr bool kDebug = true;
+constexpr bool kDebug = false;
 enum EditorKey {
     ARROW_UP=1000,
     ARROW_DOWN,
@@ -51,6 +51,12 @@ void debugLog(const std::string& message){
         }
     }
 }
+void printCoords(){
+    debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'
+        +std::to_string(E.view_offset)+';'
+        +std::to_string(E.lines[E.cy].size()));
+}
+
 
 void die(const char* s){
     write(STDOUT_FILENO, "\x1b[2J", 4);
@@ -184,21 +190,22 @@ void editorProcessKeyboard(){
             break;
         case ARROW_DOWN:
             // if(E.lines[E.cy+1].size()-1<E.cx) E.cx = E.lines[E.cy+1].size();
-            E.cy++;
-            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
+            if(E.cy<E.lines.size()-1) E.cy++;
+            printCoords();
             break;
         case ARROW_UP:
-            E.cy--;
-            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
+            if(E.cy>0) E.cy--;
+
+            printCoords();
             break;
         case ARROW_RIGHT:
             if(E.cx<=E.lines[E.cy].size()-1) E.cx++;
-            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
+            printCoords();
             break;
         case ARROW_LEFT:
             // if(E.cx>E.view_offset+1) E.cx = std::max(E.cx-1,0);
             if(E.cx>0) E.cx--;
-            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
+            printCoords();
             break;
     }
 }
