@@ -195,16 +195,22 @@ void editorProcessKeyboard(){
             break;
         case ARROW_UP:
             if(E.cy>0) E.cy--;
-
             printCoords();
             break;
         case ARROW_RIGHT:
             if(E.cx<=E.lines[E.cy].size()-1) E.cx++;
+            else if(E.cx==E.lines[E.cy].size() && E.cy<E.lines.size()-1){
+                E.cx=0;
+                E.cy++;
+            }
             printCoords();
             break;
         case ARROW_LEFT:
-            // if(E.cx>E.view_offset+1) E.cx = std::max(E.cx-1,0);
             if(E.cx>0) E.cx--;
+            else if(E.cx==0 && E.cy>0){
+                E.cx = E.lines[E.cy-1].size();
+                E.cy--;
+            }
             printCoords();
             break;
     }
