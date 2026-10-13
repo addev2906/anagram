@@ -1,7 +1,5 @@
 #include <asm-generic/ioctls.h>
 #include <cerrno>
-#include <climits>
-#include <cstddef>
 #include <cstdio>
 #include <fstream>
 #include <ios>
@@ -17,7 +15,7 @@
 
 
 #define CTRL_KEY(k) ((k)&0x1f)
-
+constexpr bool kDebug = true;
 enum EditorKey {
     ARROW_UP=1000,
     ARROW_DOWN,
@@ -28,6 +26,7 @@ struct editorConfig{
     int screenrows;
     int screencols;
     const char* filename;
+    int view_offset = 0;
     int cx;
     int cy;
     std::string line;
@@ -36,27 +35,27 @@ struct editorConfig{
 };
 
 struct editorConfig E;
-
+int getCursorPosition(int* rows,int* cols);
 // struct screenbuffer{
 //     const char* start;
 //     int length;
 // };
 // screenbuffer abuf;
 
-void debugLog(std::string message){
-    std::ofstream logfile("log.txt",std::ios::app);
-    if(logfile.is_open()){
-        // logfile.seekp(0,std::ios::end);
-        logfile<<message<<"\n";
-        logfile.close();
+void debugLog(const std::string& message){
+    if constexpr (kDebug) {
+        std::ofstream logfile("log.txt",std::ios::app);
+        if(logfile.is_open()){
+            logfile<<message<<"\n";
+            logfile.close();
+        }
     }
 }
-
 
 void die(const char* s){
     write(STDOUT_FILENO, "\x1b[2J", 4);
     write(STDOUT_FILENO, "\x1b[H", 3);
-
+    write(STDOUT_FILENO,"\x1b[?1049l",8);
     perror(s);
     exit(1);
 }
@@ -67,6 +66,7 @@ void disableRawMode(){
         file.clear();
         file.close();
     }
+    write(STDOUT_FILENO,"\x1b[?1049l",8);
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &E.original_term) == -1) die("tcsetattr");
 }
 
@@ -82,6 +82,7 @@ void enableRawMode(){
     raw.c_cc[VMIN] = 0;
     raw.c_cc[VTIME] = 1;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == -1) die("tcsetattr");
+    write(STDOUT_FILENO,"\x1b[?1049h",8);
 }
 
 int editorReadKey(){
@@ -104,7 +105,7 @@ int getWindowSize(int* rows,int* cols){
     struct winsize ws;
     if(ioctl(STDOUT_FILENO,TIOCGWINSZ,&ws)== -1 || ws.ws_col == 0){
         if(write(STDIN_FILENO,"\x1b[999C\x1b[999B",12)!=12) return -1;
-        editorReadKey();
+        getCursorPosition(rows,cols);
     }
     else{
         *cols = ws.ws_col;
@@ -143,13 +144,23 @@ void readFile(){
 
 void appendRows(std::string* buf){
     for(int i = 0;i<E.screenrows-1;i++){
-        if(i<E.lines.size()) *buf+= E.lines[i].substr(0,E.screencols)+"\r\n";
+        if(i<E.lines.size() && E.view_offset < E.lines[i].size()) *buf+= E.lines[i].substr(E.view_offset,E.screencols)+"\r\n";
+        else if(i<E.lines.size() && E.view_offset > E.lines[i].size()) *buf+="\r\n";
         else *buf+="~\r\n";
     }
     *buf+='~';
 }
 
+void scrollEditor(){
+    if(E.cx>=E.screencols+E.view_offset){
+        E.view_offset = std::min(E.view_offset+1,(int)E.lines[E.cy].size());
+    }
+    if(E.cx<E.view_offset){
+        E.view_offset = std::max(E.view_offset-1,0);
+    }
+}
 void refreshScreen(){
+    scrollEditor();
     std::string buf;
     buf+="\x1b[2J"; //Clear Screen
     buf+="\x1b[H";  //Move cursor to upper left
@@ -158,9 +169,10 @@ void refreshScreen(){
     int cols;
     // getCursorPosition(&rows,&cols);
     appendRows(&buf);
-    buf+="\x1b["+std::to_string(E.cy)+";"+std::to_string(E.cx)+"H";
+    buf+="\x1b["+std::to_string(E.cy+1)+";"+std::to_string(E.cx - E.view_offset +1)+"H";
     write(STDOUT_FILENO,buf.data(),buf.length());
 }
+
 
 void editorProcessKeyboard(){
     int c = editorReadKey();
@@ -171,28 +183,30 @@ void editorProcessKeyboard(){
             exit(0);
             break;
         case ARROW_DOWN:
-            debugLog("down");
+            // if(E.lines[E.cy+1].size()-1<E.cx) E.cx = E.lines[E.cy+1].size();
             E.cy++;
+            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
             break;
         case ARROW_UP:
-            debugLog("up");
             E.cy--;
+            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
             break;
         case ARROW_RIGHT:
-            debugLog("right");
-            E.cx++;
+            if(E.cx<=E.lines[E.cy].size()-1) E.cx++;
+            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
             break;
         case ARROW_LEFT:
-            debugLog("left");
-            E.cx--;
+            // if(E.cx>E.view_offset+1) E.cx = std::max(E.cx-1,0);
+            if(E.cx>0) E.cx--;
+            debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'+std::to_string(E.view_offset)+';'+std::to_string(E.lines[E.cy].size()));
             break;
     }
 }
 
 void initEditor(const char* filename){
     if(getWindowSize(&E.screenrows,&E.screencols)==-1) die("getWindowSize");
-    E.cx=1;
-    E.cy=1;
+    E.cx=0;
+    E.cy=0;
     E.filename = filename;
     readFile();
 }
