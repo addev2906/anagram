@@ -26,7 +26,8 @@ struct editorConfig{
     int screenrows;
     int screencols;
     const char* filename;
-    int view_offset = 0;
+    int col_offset = 0;
+    int row_offset = 0;
     int cx;
     int cy;
     int maxcx;
@@ -59,7 +60,7 @@ void debugLog(const std::string& message){
 }
 void printCoords(){
     debugLog(std::to_string(E.cx)+';'+std::to_string(E.cy)+';'
-        +std::to_string(E.view_offset)+';'
+        +std::to_string(E.col_offset)+';'
         +std::to_string(getCurrentLineSize()));
 }
 
@@ -155,23 +156,19 @@ void readFile(){
 }
 
 void appendRows(std::string* buf){
-    for(int i = 0;i<E.screenrows-1;i++){
-        if(i<E.lines.size() && E.view_offset < E.lines[i].size()) *buf+= E.lines[i].substr(E.view_offset,E.screencols)+"\r\n";
-        else if(i<E.lines.size() && E.view_offset >= E.lines[i].size()) *buf+="\r\n";
-        else *buf+="~\r\n";
+    for(int i = 0;i<E.screenrows;i++){
+        int filerow = E.row_offset+i;
+        if(filerow>=E.lines.size()) *buf+="~";
+        else if(E.col_offset<E.lines[filerow].size())*buf += E.lines[filerow].substr(E.col_offset, E.screencols);
+        if(i<E.screenrows-1) *buf+="\r\n";
     }
-    *buf+='~';
 }
 
 void scrollEditor(){
-    if(E.cx<E.view_offset) E.view_offset=E.cx;
-    if(E.cx>=E.view_offset+E.screencols) E.view_offset = E.cx-E.screencols+1;
-    if(E.cx>=E.screencols+E.view_offset){
-        E.view_offset = std::min(E.view_offset+1,(int)getCurrentLineSize());
-    }
-    if(E.cx<E.view_offset){
-        E.view_offset = std::max(E.view_offset-1,0);
-    }
+    if(E.cx<E.col_offset) E.col_offset=E.cx;
+    if(E.cx>=E.col_offset+E.screencols) E.col_offset = E.cx-E.screencols+1;
+    if(E.cy<E.row_offset) E.row_offset = E.cy;
+    if(E.cy>=E.screenrows+E.row_offset) E.row_offset = E.cy-E.screenrows+1;
 }
 void refreshScreen(){
     scrollEditor();
@@ -183,7 +180,7 @@ void refreshScreen(){
     int cols;
     // getCursorPosition(&rows,&cols);
     appendRows(&buf);
-    buf+="\x1b["+std::to_string(E.cy+1)+";"+std::to_string(E.cx - E.view_offset +1)+"H";
+    buf+="\x1b["+std::to_string(E.cy-E.row_offset+1)+";"+std::to_string(E.cx - E.col_offset +1)+"H";
     write(STDOUT_FILENO,buf.data(),buf.length());
 }
 
@@ -197,17 +194,18 @@ void editorProcessKeyboard(){
             exit(0);
             break;
         case ARROW_DOWN:
-            // if(E.lines[E.cy+1].size()-1<E.cx) E.cx = E.lines[E.cy+1].size();
             if(E.cy<E.lines.size()-1) {
                 E.cx = std::min(E.maxcx,(int)E.lines[E.cy+1].size());
                 E.cy++;
             }
+            printCoords();
             break;
         case ARROW_UP:
             if(E.cy>0){
                 E.cx = std::min(E.maxcx,(int)E.lines[E.cy-1].size());
                 E.cy--;
             }
+            printCoords();
             break;
         case ARROW_RIGHT:
             if(E.cx<=getCurrentLineSize()-1) {E.cx++;}
@@ -216,6 +214,7 @@ void editorProcessKeyboard(){
                 E.cy++;
             }
             E.maxcx=E.cx;
+            printCoords();
             break;
         case ARROW_LEFT:
             if(E.cx>0) {E.cx--;}
@@ -224,9 +223,9 @@ void editorProcessKeyboard(){
                 E.cy--;
             }
             E.maxcx = E.cx;
+            printCoords();
             break;
     }
-    printCoords();
 }
 
 void initEditor(const char* filename){
