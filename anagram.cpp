@@ -15,12 +15,18 @@
 
 
 #define CTRL_KEY(k) ((k)&0x1f)
+#define BACKSPACE 127
 constexpr bool kDebug = false;
 enum EditorKey {
     ARROW_UP=1000,
     ARROW_DOWN,
     ARROW_RIGHT,
-    ARROW_LEFT
+    ARROW_LEFT,
+    DEL_KEY,
+    HOME_KEY,
+    END_KEY,
+    PAGE_UP,
+    PAGE_DOWN
 };
 struct editorConfig{
     int screenrows;
@@ -43,17 +49,12 @@ int getCurrentLineSize(){
 }
 
 int getCursorPosition(int* rows,int* cols);
-// struct screenbuffer{
-//     const char* start;
-//     int length;
-// };
-// screenbuffer abuf;
 
-void debugLog(const std::string& message){
+void debugLog(const std::string& message,int c=-1){
     if constexpr (kDebug) {
         std::ofstream logfile("log.txt",std::ios::app);
         if(logfile.is_open()){
-            logfile<<message<<"\n";
+            logfile<<message<<' '<<c<<"\n";
             logfile.close();
         }
     }
@@ -101,15 +102,47 @@ void enableRawMode(){
 int editorReadKey(){
     int nread;
     char c;
-    if((nread = read(STDIN_FILENO,&c,1))!=1){
-        if(nread==-1 && errno!=EAGAIN) die("read");
+    if((nread = read(STDIN_FILENO,&c,1)) != 1){
+        if(nread == -1 && errno != EAGAIN) die("read");
+        return -1;
     }
-    if(c=='\x1b'){
-        if(read(STDIN_FILENO,&c,1)==0) c='\x1b';
-        else{
-            read(STDIN_FILENO,&c,1);
-            return 1000+(c-'A');
+
+    if(c == '\x1b'){
+        char seq[3];
+        if(read(STDIN_FILENO,&seq[0],1) != 1) return '\x1b';
+        if(read(STDIN_FILENO,&seq[1],1) != 1) return '\x1b';
+
+        if(seq[0] == '['){
+            if(seq[1] >= '0' && seq[1] <= '9'){
+                if(read(STDIN_FILENO,&seq[2],1) != 1) return '\x1b';
+                if(seq[2] == '~'){
+                    switch(seq[1]){
+                        case '1': return HOME_KEY;
+                        case '3': return DEL_KEY;
+                        case '4': return END_KEY;
+                        case '5': return PAGE_UP;
+                        case '6': return PAGE_DOWN;
+                        case '7': return HOME_KEY;
+                        case '8': return END_KEY;
+                    }
+                }
+            } else {
+                switch(seq[1]){
+                    case 'A': return ARROW_UP;
+                    case 'B': return ARROW_DOWN;
+                    case 'C': return ARROW_RIGHT;
+                    case 'D': return ARROW_LEFT;
+                    case 'H': return HOME_KEY;
+                    case 'F': return END_KEY;
+                }
+            }
+        } else if(seq[0] == 'O'){
+            switch(seq[1]){
+                case 'H': return HOME_KEY;
+                case 'F': return END_KEY;
+            }
         }
+        return '\x1b';
     }
     return c;
 }
@@ -184,15 +217,8 @@ void refreshScreen(){
     write(STDOUT_FILENO,buf.data(),buf.length());
 }
 
-
-void editorProcessKeyboard(){
-    int c = editorReadKey();
-    switch(c){
-        case CTRL_KEY('q'):
-            write(STDOUT_FILENO, "\x1b[2J", 4);
-            write(STDOUT_FILENO, "\x1b[H", 3);
-            exit(0);
-            break;
+void editorMoveCursor(int dir){
+    switch(dir){
         case ARROW_DOWN:
             if(E.cy<E.lines.size()-1) {
                 E.cx = std::min(E.maxcx,(int)E.lines[E.cy+1].size());
@@ -225,6 +251,51 @@ void editorProcessKeyboard(){
             E.maxcx = E.cx;
             printCoords();
             break;
+
+    }
+}
+void insertCharcter(int c){
+    // debugLog((char)c+" ");
+    E.lines[E.cy].insert(E.cx,1,(char)c);
+    editorMoveCursor(ARROW_RIGHT);
+}
+void deleteCharacter(){
+    // debugLog("Backspace");
+    if(E.cx>0){
+        E.lines[E.cy].erase(E.cx-1,1);
+        editorMoveCursor(ARROW_LEFT);
+    }
+    else if(E.cy>0){
+        E.cx = E.lines[E.cy-1].length();
+        E.lines[E.cy-1]+=E.lines[E.cy];
+        E.lines.erase(E.lines.begin()+E.cy);
+        E.cy--;
+    }
+}
+void editorProcessKeyboard(){
+    int c = editorReadKey();
+    debugLog(" ",c);
+    switch(c){
+        case CTRL_KEY('q'):
+            write(STDOUT_FILENO, "\x1b[2J", 4);
+            write(STDOUT_FILENO, "\x1b[H", 3);
+            exit(0);
+            break;
+        case ARROW_DOWN:
+        case ARROW_RIGHT:
+        case ARROW_LEFT:
+        case ARROW_UP:
+            editorMoveCursor(c);
+            break;
+        case BACKSPACE:
+            deleteCharacter();
+            break;
+        case DEL_KEY:
+            editorMoveCursor(ARROW_RIGHT);
+            deleteCharacter();
+            break;
+        default:
+            if(c>=32 && c<=126) insertCharcter(c);
     }
 }
 
